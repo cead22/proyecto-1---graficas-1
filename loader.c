@@ -40,15 +40,11 @@ Nivel cargar_nivel (char * filename) {
 	fscanf(file,"%d %d\n",&nivel.numero_impactos,&nivel.incremento_velocidad);
 	fscanf(file,"%d\n",&nivel.numero_de_bloques);
 	
-	bloques = malloc(sizeof(int)*nivel.numero_de_bloques*3);
-	for( i = 0; i <= nivel.numero_de_bloques*3; i+=3) {
-		fscanf(file,"%d %d %d\n",&bloques[i],&bloques[i+1],&bloques[i+2]);
+	nivel.bloques = malloc(sizeof(bloque)*nivel.numero_de_bloques);
+	for( i = 0; i <= nivel.numero_de_bloques; i++) {
+		fscanf(file,"%d %d %c\n",&nivel.bloques[i].fila,&nivel.bloques[i].columna,&nivel.bloques[i].color);
 	}
 
-	nivel.bloques = bloques;
-	
-	free(bloques);
-	
 	// close file
 	if(fclose(file)) {
 		printf("Error al cerrar el archivo\n");

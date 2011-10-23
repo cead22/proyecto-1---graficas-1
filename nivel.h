@@ -1,4 +1,9 @@
 typedef struct {
+	int fila;
+	int columna;
+	char color;
+} bloque;
+typedef struct {
 	int vidas;
 	int tiempo_enfriamiento;
 	int tiempo_de_salto;
@@ -7,5 +12,5 @@ typedef struct {
 	int numero_impactos;
 	int incremento_velocidad;
 	int numero_de_bloques;
-	int *bloques;
+	bloque *bloques;
 } Nivel;

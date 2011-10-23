@@ -4,11 +4,24 @@
 
 #include "loader.h"
 
-#define WIDTH 5
-#define HEIGHT 2
-#define DEPTH 2
+#define WIDTH_SCALE 5
+#define HEIGHT_SCALE 2
+#define DEPTH_SCALE 2
+#define TIMERMSECS 20
+#define MIN_X 0
+#define MIN_Y  0
+#define MIN_Z  0
+#define MAX_X  50
+#define MAX_Y  80
+#define MAX_Z  5
+
+// Global variables for measuring time (in milli-seconds)
+int startTime;
+int prevTime;
 
 Nivel nivel;
+float ball_direction = -1.0;
+float ball_y = 65.0;
 
 void light_config() { 
 	GLfloat light_ambient[] = {.1, .1, .1, 1.0};
@@ -27,10 +40,35 @@ void light_config() {
 }
 
 void draw_brick (GLint x, GLint y, char color) {
+	float *rgba;
+	float yellow[4] = {1.0,1.0,0.0,1.0};
+	float orange[4] = {1.0,0.5,0.0,1.0};
+	float red[4] = {1.0,0.0,0.0,1.0};
+	float green[4] = {0.0,1.0,0.0,1.0};
+	float gray[4] = {0.7,0.7,0.7,1.0};
+	switch (color) {
+		case 'A':
+		rgba = yellow;
+		break;
+		case 'N':
+		rgba = orange;
+		break;
+		case 'R':
+		rgba = red;
+		break;
+		case 'V':
+		rgba = green;
+		break;
+		case 'G':
+		rgba = gray;
+		break;
+		default: break;
+	}
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, rgba);
+	glMaterialfv(GL_FRONT, GL_AMBIENT, rgba);
+	
 	glPushMatrix();
-		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){1.0,0.0,1.0,1.0});
-		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){1.0,0.0,1.0,1.0});
-		glTranslatef(5*x+2.5,2*y+1 + 2*10,-2.0);
+		glTranslatef(WIDTH_SCALE*x+2.5,HEIGHT_SCALE*y+1 + DEPTH_SCALE*10,-2.0);
 		glScalef(5.0,2.0,2.0);
 		glutSolidCube(1);
 	glPopMatrix();
@@ -123,27 +161,67 @@ void draw_grid () {
 	glPopMatrix();
 }
 
-void load_bricks () {
+void draw_bricks () {
 	int i;
-	nivel = cargar_nivel("nivel1.txt");
-	for(i = 0; i < nivel.numero_de_bloques*3; i += 3) {
-		draw_brick(nivel.bloques[i],nivel.bloques[i+1],nivel.bloques[i+2]);
-		// printf("%d,%d,%d\n",nivel.bloques[i],nivel.bloques[i+1],nivel.bloques[i+2]);
+	for(i = 0; i < nivel.numero_de_bloques; i++) {
+		draw_brick(nivel.bloques[i].fila,nivel.bloques[i].columna,nivel.bloques[i].color);
+		printf("%d %d %c\n",nivel.bloques[i].fila,nivel.bloques[i].columna,nivel.bloques[i].color);
 	}
 }
 
 void display () {
-
 	glMatrixMode(GL_MODELVIEW);
-
 	glClearColor(1.0f, 1.0f, 1.0f ,1.0f);				
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-
 	draw_grid();
 	draw_axes(30);
-	// draw_brick(5,5,'A');
-	load_bricks();
+	draw_bricks();
+	glPushMatrix();
+	glTranslatef(25.0,ball_y,-2.0);
+		glutSolidSphere(1,20,20);
+	glPopMatrix();
+	
+	// floor
+	glPushMatrix();
+		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,0.0,1.0});
+		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,0.0,1.0});
+		glBegin(GL_QUADS);
+			glVertex3f(0.0,0.0,5.0);
+			glVertex3f(0.0,0.0,-10.0);
+			glVertex3f(50.0,0.0,-10.0);
+			glVertex3f(50.0,0.0,5.0);
+		glEnd();
+	glPopMatrix();
+	
+	// ceiling
+	glPushMatrix();
+		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,0.0,1.0});
+		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,0.0,1.0});
+		glBegin(GL_QUADS);
+			glVertex3f(0.0,MAX_Y,5.0);
+			glVertex3f(0.0,MAX_Y,-10.0);
+			glVertex3f(50.0,MAX_Y,-10.0);
+			glVertex3f(50.0,MAX_Y,5.0);
+		glEnd();
+	glPopMatrix();
+	
+	
+	// fondo
+	{
+		// glPushMatrix();
+		// 	glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,1.0,0.0,0.2});
+		// 	// glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,1.0,0.0,0.2});
+		// 	glTranslatef(0.0,0.0,-1.0);
+		// 	glBegin(GL_QUADS);
+		// 		glVertex3f(0.0,0.0,0.0);
+		// 		glVertex3f(0.0,60.0,0.0);
+		// 		glVertex3f(50.0,60.0,0.0);
+		// 		glVertex3f(50.0,0.0,0.0);
+		// 	glEnd();
+		// glPopMatrix();
+	}
+	
 	glutSwapBuffers();
 }
 
@@ -160,6 +238,30 @@ void reshape (int width, int height) {
 	gluLookAt(25.0,40.0,100.0,25.0,40.0,0.0,0.0,1.0,0.0);
 }
 
+static void animate(int value)
+{
+	// Set up the next timer tick (do this first)
+    glutTimerFunc(TIMERMSECS, animate, 0);
+
+	// Measure the elapsed time
+	int currTime = glutGet(GLUT_ELAPSED_TIME);
+	int timeSincePrevFrame = currTime - prevTime;
+	int elapsedTime = currTime - startTime;
+
+	// ##### REPLACE WITH YOUR OWN GAME/APP MAIN CODE HERE #####
+
+	// Rotate the triangle
+	ball_y += ball_direction*0.5;
+
+	// test collision with floor
+	if (ball_y - 1 <= MIN_Y || ball_y + 1 >= MAX_Y) ball_direction *= -1.0;
+
+	// Force a redisplay to render the new image
+	glutPostRedisplay();
+
+	prevTime = currTime;
+}
+
 int main (int argc, char *argv[]) {
 	// window settings
 	glutInit(&argc, argv);
@@ -172,10 +274,21 @@ int main (int argc, char *argv[]) {
 	light_config();
 	
 	glutDisplayFunc(display);
+	// glutIdleFunc(display);
 	glutReshapeFunc(reshape);
 
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
+
+	nivel = cargar_nivel("nivel1.txt");
+	
+	// Start the timer
+    glutTimerFunc(TIMERMSECS, animate, 0);
+
+	// initialize the time vars
+	startTime = glutGet(GLUT_ELAPSED_TIME);
+	prevTime = startTime;
+
 
 	glutMainLoop();
 	return 0;
