@@ -7,7 +7,6 @@
 #define WIDTH_SCALE 5.0
 #define HEIGHT_SCALE 2.0
 #define DEPTH_SCALE 2.0
-#define TIMERMSECS 1
 #define MIN_X 0
 #define MIN_Y  0
 #define MIN_Z  0
@@ -21,16 +20,21 @@ int prevTime;
 
 Nivel nivel;
 
-float ball_y = 5.0;
-float ball_x = 8.0;
+float ball_y = 0.0;
+float ball_x = 25.0;
 float ball_direction_y = 1.0;
 float ball_direction_x = 1.0;
-float ball_speed_x = 0.5;
+float ball_speed_x = 0.3;
 float ball_speed_y = 0.5;
 
-int timer = TIMERMSECS;
+float bar_x = 25.0;
+
+int timer = 20;
 
 bloque *block_list;
+int *remaining_hits;
+
+int collision_block = -1;
 
 void light_config() { 
 	GLfloat light_ambient[] = {.1, .1, .1, 1.0};
@@ -175,11 +179,32 @@ void draw_grid () {
 void load_bricks () {
 	int i = 0;
 	block_list = (bloque *)malloc(sizeof(bloque)*nivel.numero_de_bloques);
+	remaining_hits = (int *)malloc(sizeof(int)*nivel.numero_de_bloques);
+	
 	for(i; i < nivel.numero_de_bloques; i++) {
 		block_list[i].fila = (float)nivel.bloques[i].fila * WIDTH_SCALE + 2.5;
 		block_list[i].columna = ((float)nivel.bloques[i].columna + 10 + 0.5) * HEIGHT_SCALE;
 		block_list[i].color = (float)nivel.bloques[i].color;
-		
+	
+		switch (nivel.bloques[i].color) {
+			case 'A':
+			remaining_hits[i] = 1;
+			break;
+			case 'N':
+			remaining_hits[i] = 3;
+			break;
+			case 'R':
+			remaining_hits[i] = 5;
+			break;
+			case 'V':
+			remaining_hits[i] = 1;
+			break;
+			case 'G':
+			remaining_hits[i] = -1;
+			break;
+			default: break;
+		}
+
 		// draw_brick(nivel.bloques[i].fila,nivel.bloques[i].columna,nivel.bloques[i].color);
 		// printf("%d %d %c\n",nivel.bloques[i].fila,nivel.bloques[i].columna,nivel.bloques[i].color);
 		
@@ -189,8 +214,24 @@ void load_bricks () {
 void draw_bricks () {
 	int i = 0;
 	for(i; i < nivel.numero_de_bloques; i++) {
-		draw_brick(block_list[i]);
+		if (remaining_hits[i]) {
+			draw_brick(block_list[i]);
+		}
+		else {
+			block_list[i].fila = -5;
+			block_list[i].columna = -5;
+		}
 	}
+}
+
+void draw_bar () {
+	glPushMatrix();
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,1.0,1.0});
+	glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,1.0,1.0});
+		glTranslatef(bar_x,-2.0,-2.0);
+		glScalef(2*WIDTH_SCALE,HEIGHT_SCALE,DEPTH_SCALE);
+	glutSolidCube(1);
+	glPopMatrix();
 }
 
 void display () {
@@ -201,22 +242,26 @@ void display () {
 	draw_grid();
 	draw_axes(30);
 	draw_bricks();
+	draw_bar();
+	
 	glPushMatrix();
+		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,1.0,0.0,1.0});
+		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,1.0,0.0,1.0});
 		glTranslatef(ball_x,ball_y,-2.0);
 		glutSolidSphere(1,20,20);
 	glPopMatrix();
 	
 	// floor
-	glPushMatrix();
-		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,0.0,1.0});
-		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,0.0,1.0});
-		glBegin(GL_QUADS);
-			glVertex3f(0.0,0.0,5.0);
-			glVertex3f(0.0,0.0,-10.0);
-			glVertex3f(50.0,0.0,-10.0);
-			glVertex3f(50.0,0.0,5.0);
-		glEnd();
-	glPopMatrix();
+	// glPushMatrix();
+	// 	glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,0.0,1.0});
+	// 	glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,0.0,1.0});
+	// 	glBegin(GL_QUADS);
+	// 		glVertex3f(0.0,0.0,5.0);
+	// 		glVertex3f(0.0,0.0,-10.0);
+	// 		glVertex3f(50.0,0.0,-10.0);
+	// 		glVertex3f(50.0,0.0,5.0);
+	// 	glEnd();
+	// glPopMatrix();
 	
 	// ceiling
 	glPushMatrix();
@@ -267,7 +312,7 @@ static void animate(int value) {
 	float block_left_bound, block_right_bound, block_top_bound, block_bottom_bound;
 	float ball_max_x = ball_x + 0.5, ball_min_x = ball_x - 0.5,
 	 	ball_max_y = ball_y + 0.5, ball_min_y = ball_y - 0.5;
-	int collision_block = -1;
+
 	bloque block;
 	
 	// Set up the next timer tick (do this first)
@@ -278,14 +323,22 @@ static void animate(int value) {
 	int timeSincePrevFrame = currTime - prevTime;
 	int elapsedTime = currTime - startTime;
 
-	// ##### REPLACE WITH YOUR OWN GAME/APP MAIN CODE HERE #####
 
-	// Rotate the triangle
 	ball_y += ball_direction_y * (ball_speed_y/3);
 	ball_x += ball_direction_x * (ball_speed_x/3);
 
-	// collision with floor/ceiling
-	if (ball_y - 1 <= MIN_Y || ball_y + 1 >= MAX_Y) ball_direction_y *= -1.0;
+	// collision w/ bar
+	if (	collision_block != -1 && ball_y <= 0.5
+		&& 	ball_x >= bar_x - WIDTH_SCALE && ball_x <= bar_x + WIDTH_SCALE) {
+		ball_direction_y *= -1;
+		collision_block = -1;
+	}
+
+	// collisiom w/ceiling
+	if(ball_y + 1 >= MAX_Y) {
+		ball_direction_y *= -1.0;
+		collision_block = -2;
+	}
 	
 	// collision with blocks
 	for(i = 0; i < nivel.numero_de_bloques; ++i) {
@@ -304,6 +357,7 @@ static void animate(int value) {
 		{
 			ball_direction_y *= -1;
 			collision_block = i;
+			remaining_hits[i]--;
 		}
 		// collision with one of the sides
 		if ( 	collision_block != i
@@ -314,11 +368,15 @@ static void animate(int value) {
 		{
 			ball_direction_x *= -1;
 			collision_block = i;
+			remaining_hits[i]--;
 		}
 	}
 	
 	// collision walls
-	if (ball_x - 1 <= MIN_X || ball_x + 1 >= MAX_X) ball_direction_x *= -1.0;
+	if (ball_x - 1 <= MIN_X || ball_x + 1 >= MAX_X) {
+		ball_direction_x *= -1.0;
+		collision_block = -2;
+	}
 
 	// Force a redisplay to render the new image
 	glutPostRedisplay();
@@ -329,16 +387,35 @@ static void animate(int value) {
 static void key(unsigned char k, int x, int y)
 {
 	switch (k) {
-	case 27:  /* Escape */
-		timer += 100; // quit
-		break;
-	// ##### INSERT YOUR OWN KEY HANDLING CODE HERE #####
+	case 27:  // escape
+	exit(0);
+	break;
 	default:
 		return;
 	}
 
 	// Force a redraw of the screen in order to update the display
 	glutPostRedisplay();
+}
+
+void key_special(int key, int x, int y) {
+	switch(key) {
+		case GLUT_KEY_LEFT:
+			bar_x = (bar_x - WIDTH_SCALE < 0) ? WIDTH_SCALE : bar_x - 1;
+			// printf("bar x: %f\n", bar_x);
+			break;
+		case GLUT_KEY_RIGHT:
+			bar_x = (bar_x + WIDTH_SCALE > 50) ? 50 - WIDTH_SCALE : bar_x + 1;
+			// printf("bar x: %f\n", bar_x);
+		case GLUT_KEY_UP:
+			timer = (timer - 10 < 10) ? 10 : timer - 10;
+			break;
+		case GLUT_KEY_DOWN:
+			timer = (timer + 10 > 100) ? 100 : timer + 10;
+			break;
+		default: 
+			return;
+	}
 }
 
 int main (int argc, char *argv[]) {
@@ -349,23 +426,26 @@ int main (int argc, char *argv[]) {
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH);
 	glutCreateWindow("Play")	;
 
-
+	
 	light_config();
 	
+	// hooks
 	glutDisplayFunc(display);
-	// glutIdleFunc(display);
 	glutReshapeFunc(reshape);
 	glutKeyboardFunc(key);
+	glutSpecialFunc(key_special);
 
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-
-
+	
+	// load levels from file
 	nivel = load_level("nivel1.txt");
+	
+	// load bricks data
 	load_bricks();
 		
 	// Start the timer
-    glutTimerFunc(TIMERMSECS, animate, 0);
+    glutTimerFunc(timer, animate, 0);
 
 	// initialize the time vars
 	startTime = glutGet(GLUT_ELAPSED_TIME);
