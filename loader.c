@@ -18,7 +18,7 @@
 // 
 // }
 // 
-Nivel cargar_nivel (char * filename) {
+Nivel load_level (char * filename) {
 	FILE *file;
 	int i = 0;
 	int *bloques;
@@ -42,7 +42,7 @@ Nivel cargar_nivel (char * filename) {
 	
 	nivel.bloques = malloc(sizeof(bloque)*nivel.numero_de_bloques);
 	for( i = 0; i <= nivel.numero_de_bloques; i++) {
-		fscanf(file,"%d %d %c\n",&nivel.bloques[i].fila,&nivel.bloques[i].columna,&nivel.bloques[i].color);
+		fscanf(file,"%f %f %c\n",&nivel.bloques[i].fila,&nivel.bloques[i].columna,&nivel.bloques[i].color);
 	}
 
 	// close file

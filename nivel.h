@@ -1,6 +1,6 @@
 typedef struct {
-	int fila;
-	int columna;
+	float fila;
+	float columna;
 	char color;
 } bloque;
 typedef struct {
