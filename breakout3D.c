@@ -7,40 +7,48 @@
 #define WIDTH_SCALE 5.0
 #define HEIGHT_SCALE 2.0
 #define DEPTH_SCALE 2.0
-#define MIN_X 0
-#define MIN_Y  0
-#define MIN_Z  0
-#define MAX_X  50
-#define MAX_Y  80
-#define MAX_Z  5
+#define BALL_RADIUS 0.5
+#define BLOCK_SIZE 1.0
+#define MIN_X 0.0
+#define MIN_Y  0.0
+#define MIN_Z  0.0
+#define MAX_X  50.0
+#define MAX_Y  80.0
+#define MAX_Z  5.0
+#define ESCAPE 27
+#define SPACEBAR 32
 
-// Global variables for measuring time (in milli-seconds)
-int startTime;
-int prevTime;
+// timer variables
+int star_time;
+int previous_time;
+int timer = 20;
 
+// levels
 Nivel nivel;
 
+// ball
 float ball_y = 0.0;
 float ball_x = 25.0;
 float ball_direction_y = 1.0;
 float ball_direction_x = 1.0;
-float ball_speed_x = 0.3;
-float ball_speed_y = 0.5;
+float ball_speed_x = 0.0;
+float ball_speed_y = 0.0;
 
+// directional bar
 float bar_x = 25.0;
 
-int timer = 20;
-
+// blocks data
 bloque *block_list;
 int *remaining_hits;
-
 int collision_block = -1;
 
+int alive = 0;
+
 void light_config() { 
-	GLfloat light_ambient[] = {.1, .1, .1, 1.0};
-	GLfloat light_diffuse[] = {.8, .8, .8, 1.0};
+	GLfloat light_diffuse[] = {.5, .5, .5, 1.0};
+	GLfloat light_ambient[] = {.5, .5, .5, 1.0};
 	GLfloat light_specular[] = {.7, .7, .7, 1.0};
-	GLfloat light_position[] = {-10.0, 10, 20, 0.0};
+	GLfloat light_position[] = {-10.0, 10, 50, 0.0};
 
 	glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient);
 	glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse);
@@ -59,6 +67,7 @@ void draw_brick (bloque block) {
 	float red[4] = {1.0,0.0,0.0,1.0};
 	float green[4] = {0.0,1.0,0.0,1.0};
 	float gray[4] = {0.7,0.7,0.7,1.0};
+	float black[4] = {0.0,0.0,0.0,1.0};
 	switch (block.color) {
 		case 'A':
 		rgba = yellow;
@@ -80,9 +89,12 @@ void draw_brick (bloque block) {
 	glPushMatrix();
 		glMaterialfv(GL_FRONT, GL_DIFFUSE, rgba);
 		glMaterialfv(GL_FRONT, GL_AMBIENT, rgba);
-		glTranslatef(block.fila,block.columna,-2.0);
+		glTranslatef(block.fila,block.columna,0.0);
 		glScalef(WIDTH_SCALE,HEIGHT_SCALE,DEPTH_SCALE);
-		glutSolidCube(1);
+		glutSolidCube(BLOCK_SIZE);
+		glMaterialfv(GL_FRONT, GL_DIFFUSE, black);
+		glMaterialfv(GL_FRONT, GL_AMBIENT, black);
+		glutWireCube(BLOCK_SIZE);
 	glPopMatrix();
 }             
 
@@ -124,11 +136,11 @@ void draw_grid () {
 	
 	glPushMatrix();
 		glPushAttrib(GL_LIGHTING_BIT);
-			glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.1,0.1,0.1,1});
-			glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.1,0.1,0.1,1});
+			glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.1,0.8,0.4,1.0});
+			glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.1,0.2,0.6,1.0});
 		glPopAttrib();
 		glLineWidth(1.0f);
-		glTranslatef(0,0,-1.0f);
+		glTranslatef(0,0,-3.0f);
 		// free space
 		// horizontal
 		for(y = 0; y < 20; ++i, y += 2) {
@@ -185,7 +197,6 @@ void load_bricks () {
 		block_list[i].fila = (float)nivel.bloques[i].fila * WIDTH_SCALE + 2.5;
 		block_list[i].columna = ((float)nivel.bloques[i].columna + 10 + 0.5) * HEIGHT_SCALE;
 		block_list[i].color = (float)nivel.bloques[i].color;
-	
 		switch (nivel.bloques[i].color) {
 			case 'A':
 			remaining_hits[i] = 1;
@@ -204,10 +215,6 @@ void load_bricks () {
 			break;
 			default: break;
 		}
-
-		// draw_brick(nivel.bloques[i].fila,nivel.bloques[i].columna,nivel.bloques[i].color);
-		// printf("%d %d %c\n",nivel.bloques[i].fila,nivel.bloques[i].columna,nivel.bloques[i].color);
-		
 	}
 }
 
@@ -228,9 +235,78 @@ void draw_bar () {
 	glPushMatrix();
 	glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,1.0,1.0});
 	glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,1.0,1.0});
-		glTranslatef(bar_x,-2.0,-2.0);
-		glScalef(2*WIDTH_SCALE,HEIGHT_SCALE,DEPTH_SCALE);
+		glTranslatef(bar_x,-1.0,0.0);
+		glScalef(2*WIDTH_SCALE,HEIGHT_SCALE/2,DEPTH_SCALE);
 	glutSolidCube(1);
+	glPopMatrix();
+}
+
+void draw_ball() {
+	alive ? ball_x : (ball_x = bar_x);
+	glPushMatrix();
+		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,1.0,0.0,1.0});
+		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,1.0,0.0,1.0});
+		glTranslatef(ball_x,ball_y,0.0);
+		glutSolidSphere(BALL_RADIUS,20,20);
+	glPopMatrix();
+}
+
+void draw_bounds() {
+	glPushMatrix();
+		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,0.0,1.0});
+		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,0.0,1.0});
+		glTranslatef(0.0,0.0,0.0);
+		glLineWidth(2.0);
+		glBegin(GL_LINES);
+			//ceiling
+			glVertex3f(0.0,80.0,0.0);
+			glVertex3f(0.0,80.0,2.0);
+			glVertex3f(0.0,80.0,2.0);
+			glVertex3f(50.0,80,2.0);
+			glVertex3f(50.0,80,2.0);
+			glVertex3f(50.0,80,0.0);
+			glVertex3f(50.0,80,0.0);
+			glVertex3f(0.0,80.0,0.0);
+			// walls
+			glVertex3f(0.0,0.0,0.0);
+			glVertex3f(0.0,0.0,2.0);
+			glVertex3f(0.0,0.0,2.0);
+			glVertex3f(0.0,80,2.0);
+			glVertex3f(0.0,80,2.0);
+			glVertex3f(0.0,80,0.0);			
+			glVertex3f(0.0,80,0.0);
+			glVertex3f(0.0,0.0,0.0);
+			
+			glVertex3f(50.0,0.0,0.0);
+			glVertex3f(50.0,0.0,2.0);
+			glVertex3f(50.0,0.0,2.0);
+			glVertex3f(50.0,80,2.0);
+			glVertex3f(50.0,80,2.0);
+			glVertex3f(50.0,80,0.0);
+			glVertex3f(50.0,80,0.0);
+			glVertex3f(50.0,0.0,0.0);
+		glEnd();
+	glPopMatrix();
+	glPushMatrix();		
+		glTranslatef(0.0,0.0,0.0);
+		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,0.0,1.0});
+		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.95,0.95,0.95,1.0});
+		glBegin(GL_QUADS);
+			// ceiling
+			glVertex3f(0.0,80.0,0.0);
+			glVertex3f(0.0,80.0,2.0);
+			glVertex3f(50.0,80,2.0);
+			glVertex3f(50.0,80,0.0);
+			// walls
+			glVertex3f(0.0,0.0,0.0);
+			glVertex3f(0.0,0.0,2.0);
+			glVertex3f(0.0,80,2.0);
+			glVertex3f(0.0,80,0.0);
+			glVertex3f(50.0,0.0,0.0);
+			glVertex3f(50.0,0.0,2.0);
+			glVertex3f(50.0,80,2.0);
+			glVertex3f(50.0,80,0.0);
+		glEnd();
 	glPopMatrix();
 }
 
@@ -239,58 +315,14 @@ void display () {
 	glClearColor(1.0f, 1.0f, 1.0f ,1.0f);				
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	draw_grid();
-	draw_axes(30);
+	// draw scene elements
+	// draw_grid();
+	draw_bounds();
 	draw_bricks();
 	draw_bar();
-	
-	glPushMatrix();
-		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,1.0,0.0,1.0});
-		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,1.0,0.0,1.0});
-		glTranslatef(ball_x,ball_y,-2.0);
-		glutSolidSphere(1,20,20);
-	glPopMatrix();
-	
-	// floor
-	// glPushMatrix();
-	// 	glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,0.0,1.0});
-	// 	glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,0.0,1.0});
-	// 	glBegin(GL_QUADS);
-	// 		glVertex3f(0.0,0.0,5.0);
-	// 		glVertex3f(0.0,0.0,-10.0);
-	// 		glVertex3f(50.0,0.0,-10.0);
-	// 		glVertex3f(50.0,0.0,5.0);
-	// 	glEnd();
-	// glPopMatrix();
-	
-	// ceiling
-	glPushMatrix();
-		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){1.0,0.0,0.0,1.0});
-		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){1.0,0.0,0.0,1.0});
-		glBegin(GL_QUADS);
-			glVertex3f(0.0,MAX_Y,5.0);
-			glVertex3f(0.0,MAX_Y,-10.0);
-			glVertex3f(50.0,MAX_Y,-10.0);
-			glVertex3f(50.0,MAX_Y,5.0);
-		glEnd();
-	glPopMatrix();
-	
-	
-	// fondo
-	{
-		// glPushMatrix();
-		// 	glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,1.0,0.0,0.2});
-		// 	// glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,1.0,0.0,0.2});
-		// 	glTranslatef(0.0,0.0,-1.0);
-		// 	glBegin(GL_QUADS);
-		// 		glVertex3f(0.0,0.0,0.0);
-		// 		glVertex3f(0.0,60.0,0.0);
-		// 		glVertex3f(50.0,60.0,0.0);
-		// 		glVertex3f(50.0,0.0,0.0);
-		// 	glEnd();
-		// glPopMatrix();
-	}
-	
+	draw_ball();
+
+	// paint
 	glutSwapBuffers();
 }
 
@@ -300,29 +332,32 @@ void reshape (int width, int height) {
 	glMatrixMode(GL_PROJECTION); 
 	glLoadIdentity(); 
 	
-	gluPerspective(50, (GLfloat)width / (GLfloat)height, 100.0, 120.0); 
+	gluPerspective(40, (GLfloat)width / (GLfloat)height, 60.0, 130.0); 
 	
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
-	gluLookAt(25.0,40.0,100.0,25.0,40.0,0.0,0.0,1.0,0.0);
+	gluLookAt(25.0,-30.0,70.0,25.0,30.0,0.0,0.0,1.0,0.0);
 }
 
-static void animate(int value) {
+static void play(int value) {
 	int i = 0;
-	float block_left_bound, block_right_bound, block_top_bound, block_bottom_bound;
-	float ball_max_x = ball_x + 0.5, ball_min_x = ball_x - 0.5,
-	 	ball_max_y = ball_y + 0.5, ball_min_y = ball_y - 0.5;
-
+	float 	block_left_bound,
+	 		block_right_bound,
+	 		block_top_bound,
+	 		block_bottom_bound;
+	float 	ball_max_x = ball_x + BALL_RADIUS,
+	 		ball_min_x = ball_x - BALL_RADIUS,
+	 		ball_max_y = ball_y + BALL_RADIUS,
+			ball_min_y = ball_y - BALL_RADIUS;
 	bloque block;
 	
 	// Set up the next timer tick (do this first)
-    glutTimerFunc(timer, animate, 0);
+    glutTimerFunc(timer, play, 0);
 
 	// Measure the elapsed time
-	int currTime = glutGet(GLUT_ELAPSED_TIME);
-	int timeSincePrevFrame = currTime - prevTime;
-	int elapsedTime = currTime - startTime;
-
+	int current_time = glutGet(GLUT_ELAPSED_TIME);
+	int time_since_previous_frame = current_time - previous_time;
+	int elapsed_time = current_time - star_time;
 
 	ball_y += ball_direction_y * (ball_speed_y/3);
 	ball_x += ball_direction_x * (ball_speed_x/3);
@@ -350,10 +385,10 @@ static void animate(int value) {
 
 		// collision with top or bottom
 		if ( 	collision_block != i
-			&&	ball_x >= block_left_bound - 0.5
-			&&	ball_x <= block_right_bound + 0.5
-			&& 	(	abs(ball_y - block_top_bound) <= 0.5 
-				|| 	abs(ball_y - block_bottom_bound) <= 0.5) )
+			&&	ball_x >= block_left_bound - BALL_RADIUS/2
+			&&	ball_x <= block_right_bound + BALL_RADIUS/2
+			&& 	(	abs(ball_y - block_top_bound) <= BALL_RADIUS/2 
+				|| 	abs(ball_y - block_bottom_bound) <= BALL_RADIUS/2) )
 		{
 			ball_direction_y *= -1;
 			collision_block = i;
@@ -361,10 +396,10 @@ static void animate(int value) {
 		}
 		// collision with one of the sides
 		if ( 	collision_block != i
-			&& 	ball_y >= block_bottom_bound - 0.5
-			&&	ball_y <= block_top_bound + 0.5
-			&& 	(	abs(ball_x - block_right_bound) <= 0.5 
-				|| 	abs(ball_x - block_left_bound) <= 0.5))
+			&& 	ball_y >= block_bottom_bound - BALL_RADIUS/2
+			&&	ball_y <= block_top_bound + BALL_RADIUS/2
+			&& 	(	abs(ball_x - block_right_bound) <= BALL_RADIUS/2 
+				|| 	abs(ball_x - block_left_bound) <= BALL_RADIUS/2))
 		{
 			ball_direction_x *= -1;
 			collision_block = i;
@@ -373,7 +408,7 @@ static void animate(int value) {
 	}
 	
 	// collision walls
-	if (ball_x - 1 <= MIN_X || ball_x + 1 >= MAX_X) {
+	if (ball_x - BALL_RADIUS/2 <= MIN_X || ball_x + BALL_RADIUS/2 >= MAX_X) {
 		ball_direction_x *= -1.0;
 		collision_block = -2;
 	}
@@ -381,41 +416,62 @@ static void animate(int value) {
 	// Force a redisplay to render the new image
 	glutPostRedisplay();
 
-	prevTime = currTime;
+	previous_time = current_time;
 }
 
-static void key(unsigned char k, int x, int y)
-{
+static void key(unsigned char k, int x, int y) {
 	switch (k) {
-	case 27:  // escape
-	exit(0);
-	break;
+	// escape
+	case ESCAPE:
+		exit(0);
+	case SPACEBAR:
+		if (!alive) {
+			ball_speed_y = 0.5;
+			ball_speed_x = 0.5;
+			ball_direction_x = -0.2;// + (float) (rand() % 11) + 10.0;
+			printf("ball_speed_x %d %f %f \n ",rand(),ball_speed_x, (double)(rand() % 11 + 10.0)/10.0);
+			alive = 1;
+		}
 	default:
 		return;
 	}
 
-	// Force a redraw of the screen in order to update the display
+	// paint
 	glutPostRedisplay();
 }
 
 void key_special(int key, int x, int y) {
 	switch(key) {
 		case GLUT_KEY_LEFT:
-			bar_x = (bar_x - WIDTH_SCALE < 0) ? WIDTH_SCALE : bar_x - 1;
-			// printf("bar x: %f\n", bar_x);
+			bar_x = (bar_x - WIDTH_SCALE - 1 < 0) ? WIDTH_SCALE : bar_x - 1;
 			break;
 		case GLUT_KEY_RIGHT:
-			bar_x = (bar_x + WIDTH_SCALE > 50) ? 50 - WIDTH_SCALE : bar_x + 1;
-			// printf("bar x: %f\n", bar_x);
-		case GLUT_KEY_UP:
-			timer = (timer - 10 < 10) ? 10 : timer - 10;
-			break;
-		case GLUT_KEY_DOWN:
-			timer = (timer + 10 > 100) ? 100 : timer + 10;
-			break;
+			bar_x = (bar_x + WIDTH_SCALE + 1 > 50) ? 50 - WIDTH_SCALE : bar_x + 1;
 		default: 
 			return;
 	}
+	glutPostRedisplay();
+}
+
+void mouse (int x, int y) {
+	GLdouble new_x, new_y, new_z;
+	GLdouble model_matrix[16];
+    GLdouble projection_matrix[16];
+    int viewport[4];
+	
+	// translate mouse coordinates to world coordinates
+    glGetDoublev(GL_MODELVIEW_MATRIX, model_matrix);
+    glGetDoublev(GL_PROJECTION_MATRIX, projection_matrix);
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    gluUnProject(x, viewport[3]-y, 0,
+		model_matrix, projection_matrix, viewport,
+		&new_x, &new_y, &new_z);
+	
+	// mouse position valid?
+	bar_x = (new_x > WIDTH_SCALE && new_x < MAX_X - WIDTH_SCALE) ? (float) new_x : bar_x;	
+	
+	// paint
+	glutPostRedisplay();
 }
 
 int main (int argc, char *argv[]) {
@@ -426,7 +482,7 @@ int main (int argc, char *argv[]) {
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH);
 	glutCreateWindow("Play")	;
 
-	
+	// lights
 	light_config();
 	
 	// hooks
@@ -434,6 +490,7 @@ int main (int argc, char *argv[]) {
 	glutReshapeFunc(reshape);
 	glutKeyboardFunc(key);
 	glutSpecialFunc(key_special);
+	glutPassiveMotionFunc(mouse);
 
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
@@ -445,11 +502,11 @@ int main (int argc, char *argv[]) {
 	load_bricks();
 		
 	// Start the timer
-    glutTimerFunc(timer, animate, 0);
+    glutTimerFunc(timer, play, 0);
 
 	// initialize the time vars
-	startTime = glutGet(GLUT_ELAPSED_TIME);
-	prevTime = startTime;
+	star_time = glutGet(GLUT_ELAPSED_TIME);
+	previous_time = star_time;
 
 
 	glutMainLoop();
