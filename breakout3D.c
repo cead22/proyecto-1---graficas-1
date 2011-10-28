@@ -1,6 +1,13 @@
-#include <GLUT/glut.h>
-#include <OpenGL/gl.h>
-#include <OpenGl/glu.h>
+#ifdef __APPLE__
+#  include <OpenGL/gl.h>
+#  include <OpenGL/glu.h>
+#  include <GLUT/glut.h>
+#else
+#  include <GL/gl.h>
+#  include <GL/glu.h>
+#  include <GL/glut.h>
+#endif
+
 #include "loader.h"
 
 #define WIDTH_SCALE 5.0
@@ -20,7 +27,7 @@
 // timer variables
 int star_time;
 int previous_time;
-int timer = 20;
+int timer = 10;
 
 // game
 Game *game;
@@ -28,9 +35,11 @@ Nivel *current_level;
 int level_index = 0;
 int lives = 10;
 int score = 0;
-int won = 0;
 int alive = 0;
 int status = 0; // lost,won,playing = -1,0,1 resp
+int playing;
+int ceiling_hits = 0;
+int next_jump;
 
 // ball
 float ball_y = 0.0;
@@ -114,15 +123,16 @@ void free_memory() {
 	free(remaining_hits);
 	free(points);
 }
-
 // push block down 1 row
 void lower_blocks () {
 	int i;
-	for(i = 0; i < current_level->numero_de_bloques; ++i) {
-		block_list[i].columna -= HEIGHT_SCALE;
-		if(block_list[i].columna == -1) {
-			// player lost
-			status = -1;
+	if (playing) {
+		for(i = 0; i < current_level->numero_de_bloques; ++i) {
+			block_list[i].columna -= HEIGHT_SCALE;
+			if(block_list[i].columna == -1) {
+				// player lost
+				status = -1;
+			}
 		}
 	}
 }
@@ -136,6 +146,8 @@ void load_bricks () {
 		// player has won
 		return;
 	}
+	
+	ceiling_hits = 0;
 	current_level = game->niveles + level_index;
 	
 	// allocate memory for game data
@@ -176,7 +188,6 @@ void load_bricks () {
 			default: break;
 		}
 	}
-	glutTimerFunc(game->tiempo_enfriamiento, lower_blocks, 0);
 }
 
 // draw individual bricks
@@ -344,13 +355,10 @@ void display () {
 		draw_ball();
 		draw_game_info();
 	}
-	else if (status == 1) {
+	else{
 		// player has won
 		draw_bounds();
-		draw_ball();
 		draw_game_info();
-		glutSwapBuffers();
-		return;
 	}
 
 	// paint
@@ -372,17 +380,17 @@ void reshape (int width, int height) {
 	gluLookAt(25.0,-30.0,70.0,25.0,30.0,0.0,0.0,1.0,0.0);
 }
 
-void reset_game() {
-	alive = 0;
-	score = 0;
-	lives = 3;
-	ball_x = 25;
-	ball_y = 0;
-	ball_speed_x = 0;
-	ball_speed_y = 0;
-	blocks_left = 0;
-	level_index = 0;
-}
+// void reset_game() {
+// 	alive = 0;
+// 	score = 0;
+// 	lives = 3;
+// 	ball_x = 25;
+// 	ball_y = 0;
+// 	ball_speed_x = 0;
+// 	ball_speed_y = 0;
+// 	blocks_left = 0;
+// 	level_index = 0;
+// }
 
 static void play(int value) {
 	int i = 0, j = 0;
@@ -391,26 +399,30 @@ static void play(int value) {
 	 		block_top_bound,
 			block_bottom_bound;
 	Bloque block;
-	
-	// Set up the next timer tick (do this first)
-    glutTimerFunc(timer, play, 0);
+
 	
 	if (!lives) {
-		reset_game();
-		free_memory();
+		playing = 0;
+		status = -1;
+		glutPostRedisplay();
 		return;
 	}
+	
 	
 	if (!alive) {
 		ball_speed_x = 0;
 		ball_speed_y = 0;
 	}
 	
+	ball_speed_x = ball_speed_x > 1.0 ? 1.0 : ball_speed_x;
+	ball_speed_y = ball_speed_y > 1.0 ? 1.0 : ball_speed_y;
+	
 	if (!blocks_left) {
 		level_index++;
-		if(level_index == game->numero_de_niveles) {
+		if(level_index >= game->numero_de_niveles) {
 			// player has won
 			status = 1;
+			playing = 0;
 			return;
 		}
 		ball_x = 25;
@@ -422,35 +434,47 @@ static void play(int value) {
 		free_memory();
 		load_bricks();
 	}
+	if (glutGet(GLUT_ELAPSED_TIME) > next_jump) {
+	printf("%d %d\n", glutGet(GLUT_ELAPSED_TIME), next_jump);
+		next_jump += game->tiempo_de_salto;
+		lower_blocks();
+	}
+	
+	// Set up the next timer tick (do this first)
+    glutTimerFunc(timer, play, 0);
 
 	// Measure the elapsed time
 	int current_time = glutGet(GLUT_ELAPSED_TIME);
 	int time_since_previous_frame = current_time - previous_time;
 	int elapsed_time = current_time - star_time;
 
-	ball_y += ball_direction_y * (ball_speed_y/2);
-	ball_x += ball_direction_x * (ball_speed_x/2);
+	ball_y += ball_direction_y * (ball_speed_y);
+	ball_x += ball_direction_x * (ball_speed_x);
 
 	// collision w/ bar
 	if (	collision_block != -1 && ball_y <= 0.5 && ball_direction_y < 0 && ball_y>-0.2
-		&& 	ball_x >= bar_x - WIDTH_SCALE && ball_x <= bar_x + WIDTH_SCALE) {
+		&& 	ball_x >= bar_x - WIDTH_SCALE && ball_x <= bar_x + WIDTH_SCALE && playing) {
 			
 		// collision w/blue part. 0.05555 = 5 degrees aprox.
 		if (ball_x <= bar_x - 2.0 || ball_x >= bar_x + 2.0) {
 			if (ball_direction_x > 0) {
-				if (ball_x <= bar_x - 2.0) {
+				// left side
+				if (ball_x < bar_x - 2.0) {
 					ball_direction_x -= 0.05555;
 				}
+				// right side
 				else {
 					ball_direction_x += 0.05555;
 				}
 			}
 			else {
-				if (ball_x <= bar_x - 2.0) {
-					ball_direction_x += 0.05555;
-				}
-				else {
+				// left side
+				if (ball_x < bar_x - 2.0) {
 					ball_direction_x -= 0.05555;
+				}
+				//right side
+				else {
+					ball_direction_x += 0.05555;
 				}
 			}
 		}
@@ -469,12 +493,17 @@ static void play(int value) {
 		// collision with top or bottom
 		if ( collision_block != i
 			&&	ball_x >= block_left_bound - BALL_RADIUS/2
-			&&	ball_x <= block_right_bound + BALL_RADIUS/2)
+			&&	ball_x <= block_right_bound + BALL_RADIUS/2
+			&& playing)
 		{
 				// top
 				if (abs(ball_y - block_top_bound) < BALL_RADIUS/2) {
 					ball_direction_y = 1;
 					collision_block = i;
+					if (block.color = 'V') {
+						ball_speed_x += ball_speed_x * 0.1;
+						ball_speed_y += ball_speed_y * 0.1;
+					}
 					remaining_hits[i]--;
 					blocks_left--;
 					score += points[i];
@@ -484,6 +513,10 @@ static void play(int value) {
 				if (abs(ball_y - block_bottom_bound) < BALL_RADIUS/2) {
 					ball_direction_y = -1;
 					collision_block = i;
+					if (block.color = 'V') {
+						ball_speed_x += ball_speed_x * 0.1;
+						ball_speed_y += ball_speed_y * 0.1;
+					}
 					remaining_hits[i]--;
 					blocks_left--;
 					score += points[i];
@@ -494,11 +527,16 @@ static void play(int value) {
 		// collision with one of the sides
 		if ( 	collision_block != i
 			&& 	ball_y >= block_bottom_bound - BALL_RADIUS/2
-			&&	ball_y <= block_top_bound + BALL_RADIUS/2)
+			&&	ball_y <= block_top_bound + BALL_RADIUS/2
+			&& playing)
 		{
 			if( abs(ball_x - block_right_bound) < BALL_RADIUS/2 && ball_direction_x < 0) {
 				ball_direction_x *= -1;
 				collision_block = i;
+				if (block.color = 'V') {
+					ball_speed_x += ball_speed_x * 0.1;
+					ball_speed_y += ball_speed_y * 0.1;
+				}
 				remaining_hits[i]--;
 				blocks_left--;
 				score += points[i];
@@ -507,6 +545,10 @@ static void play(int value) {
 			if( abs(ball_x - block_left_bound) < BALL_RADIUS/2 && ball_direction_x > 0) {
 				ball_direction_x *= -1;
 				collision_block = i;
+				if (block.color = 'V') {
+					ball_speed_x += ball_speed_x * 0.1;
+					ball_speed_y += ball_speed_y * 0.1;
+				}
 				remaining_hits[i]--;
 				blocks_left--;
 				score += points[i];
@@ -531,6 +573,11 @@ static void play(int value) {
 	if (ball_y + 1 >= MAX_Y) {
 		ball_direction_y *= -1.0;
 		collision_block = -2;
+		ceiling_hits++;
+		if(ceiling_hits % 5 == 0) {
+			ball_speed_x = ball_speed_x + ball_speed_x * current_level->incremento_velocidad;
+			ball_speed_y = ball_speed_y + ball_speed_y * current_level->incremento_velocidad;
+		}
 	}
 	
 	// collision w/floor - lose
@@ -538,6 +585,7 @@ static void play(int value) {
 		alive = 0;
 		lives--;
 		collision_block = -2;
+		playing = 0;
 	}
 	
 	// Force a redisplay to render the new image
@@ -555,18 +603,22 @@ static void key(unsigned char k, int x, int y) {
 	case SPACEBAR:
 		if (!alive) {
 			alive = 1;
-			ball_speed_y = 1.0;
-			ball_speed_x = 1.0;
+			ball_speed_y = 0.3;
+			ball_speed_x = 0.3;
 			ball_direction_y = 1.0;
 			ball_direction_x = (rand() % 2 > 0 ? -1 : 1) * (rand() % 5) * 0.02222;
+			// glutTimerFunc(game->tiempo_enfriamiento, cool_down, 0);
+			next_jump = glutGet(GLUT_ELAPSED_TIME) + game->tiempo_enfriamiento
+				+ game->tiempo_de_salto;
+			playing = 1;
 		}
 		break;
-	case 'r':
-	case 'R':
-		reset_game();
-		free_memory();
-		load_bricks();
-		break;
+	// case 'r':
+	// case 'R':
+	// 	reset_game();
+	// 	free_memory();
+	// 	load_bricks();
+	// 	break;
 	default:
 		return;
 	}
@@ -616,7 +668,7 @@ int main (int argc, char *argv[]) {
 	glutInitWindowSize(800,600);
 	glutInitWindowPosition(20,20);
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH);
-	glutCreateWindow("Play")	;
+	glutCreateWindow("Play");
 
 	// lights
 	light_config();
