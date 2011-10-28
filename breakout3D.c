@@ -1,7 +1,6 @@
 #include <GLUT/glut.h>
 #include <OpenGL/gl.h>
 #include <OpenGl/glu.h>
-
 #include "loader.h"
 
 #define WIDTH_SCALE 5.0
@@ -11,7 +10,7 @@
 #define BLOCK_SIZE 1.0
 #define MIN_X 0.0
 #define MIN_Y  0.0
-#define MIN_Z  0.0
+#define Z 2.0
 #define MAX_X  50.0
 #define MAX_Y  80.0
 #define MAX_Z  5.0
@@ -23,14 +22,21 @@ int star_time;
 int previous_time;
 int timer = 20;
 
-// levels
-Nivel nivel;
+// game
+Game *game;
+Nivel *current_level;
+int level_index = 0;
+int lives = 10;
+int score = 0;
+int won = 0;
+int alive = 0;
+int status = 0; // lost,won,playing = -1,0,1 resp
 
 // ball
 float ball_y = 0.0;
 float ball_x = 25.0;
 float ball_direction_y = 1.0;
-float ball_direction_x = 1.0;
+float ball_direction_x;
 float ball_speed_x = 0.0;
 float ball_speed_y = 0.0;
 
@@ -38,12 +44,13 @@ float ball_speed_y = 0.0;
 float bar_x = 25.0;
 
 // blocks data
-bloque *block_list;
+Bloque *block_list;
 int *remaining_hits;
+int *points;
 int collision_block = -1;
+int blocks_left;
 
-int alive = 0;
-
+// light
 void light_config() { 
 	GLfloat light_diffuse[] = {.5, .5, .5, 1.0};
 	GLfloat light_ambient[] = {.5, .5, .5, 1.0};
@@ -60,7 +67,8 @@ void light_config() {
 	glEnable(GL_LIGHTING);
 }
 
-void draw_brick (bloque block) {
+// draw individual bricks
+void draw_brick (Bloque block) {
 	float *rgba;
 	float yellow[4] = {1.0,1.0,0.0,1.0};
 	float orange[4] = {1.0,0.5,0.0,1.0};
@@ -68,6 +76,7 @@ void draw_brick (bloque block) {
 	float green[4] = {0.0,1.0,0.0,1.0};
 	float gray[4] = {0.7,0.7,0.7,1.0};
 	float black[4] = {0.0,0.0,0.0,1.0};
+	// set brick color
 	switch (block.color) {
 		case 'A':
 		rgba = yellow;
@@ -86,6 +95,7 @@ void draw_brick (bloque block) {
 		break;
 		default: break;
 	}
+	// draw the brick
 	glPushMatrix();
 		glMaterialfv(GL_FRONT, GL_DIFFUSE, rgba);
 		glMaterialfv(GL_FRONT, GL_AMBIENT, rgba);
@@ -98,151 +108,116 @@ void draw_brick (bloque block) {
 	glPopMatrix();
 }             
 
-void draw_axes (GLfloat size) {
-	
-	glPushMatrix();
-		glLineWidth(1.0f);
-	
-		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,1.0,1.0});
-		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,1.0,1.0});
-		// x axis
-		glBegin(GL_LINES);
-			glVertex3f(0.0f, 0.0f, 0.0f);
-			glVertex3f(10*5, 0.0f, 0.0f);
-		glEnd();
-	
-		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){1.0,0.0,0.0,1.0});
-		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){1.0,0.0,0.0,1.0});
-		// y axis
-		glBegin(GL_LINES);
-			glVertex3f(0.0f, 0.0f, 0.0f);
-			glVertex3f(0.0f, 40*2, 0.0f);
-		glEnd();
-
-		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,1.0,0.0,1.0});
-		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,1.0,0.0,1.0});
-		// z axis
-		glBegin(GL_LINES);
-			glVertex3f(0.0f, 0.0f, 0.0f);
-			glVertex3f(0.0f, 0.0f, size);
-		glEnd();
-	
-	glPopMatrix();
+// free memory allocated for game data
+void free_memory() {
+	free(block_list);
+	free(remaining_hits);
+	free(points);
 }
 
-void draw_grid () {
-	float x = 0.0, y = 0.0;
-	int i, j;
-	
-	glPushMatrix();
-		glPushAttrib(GL_LIGHTING_BIT);
-			glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.1,0.8,0.4,1.0});
-			glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.1,0.2,0.6,1.0});
-		glPopAttrib();
-		glLineWidth(1.0f);
-		glTranslatef(0,0,-3.0f);
-		// free space
-		// horizontal
-		for(y = 0; y < 20; ++i, y += 2) {
-			glBegin(GL_LINES);
-			glVertex2f(0.0f,y);
-			glVertex2f(50.0f,y);
-			glEnd();
+// push block down 1 row
+void lower_blocks () {
+	int i;
+	for(i = 0; i < current_level->numero_de_bloques; ++i) {
+		block_list[i].columna -= HEIGHT_SCALE;
+		if(block_list[i].columna == -1) {
+			// player lost
+			status = -1;
 		}
-		for(y = 70; y <= 80; ++i, y += 2) {
-			glBegin(GL_LINES);
-			glVertex2f(0.0f,y);
-			glVertex2f(50.0f,y);
-			glEnd();
-		}
-		// vertical
-		for(x = 0; x <= 50; x += 5) {
-			glBegin(GL_LINES);
-			glVertex2f(x,0.0f);
-			glVertex2f(x,20.0f);
-			glVertex2f(x,70.0f);
-			glVertex2f(x,80.0f);
-			glEnd();
-		}
-		
-		glPushAttrib(GL_LIGHTING_BIT);
-			glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,1.0,0.0,1.0});
-			glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,1.0,0.0,1.0});
-		glPopAttrib();
-		// game area
-		glLineWidth(1.0f);
-		// horizontal
-		for(y = 20; y <= 70; y += 2) {
-			glBegin(GL_LINES);
-			glVertex2f(0.0f,y);
-			glVertex2f(50.0f,y);
-			glEnd();
-		}
-		// vertical
-		for(x = 0; x <= 50; x += 5) {
-			glBegin(GL_LINES);
-			glVertex2f(x,20.0f);
-			glVertex2f(x,70.0f);
-			glEnd();
-		}
-	glPopMatrix();
+	}
 }
 
+// load bricks and store game data
 void load_bricks () {
 	int i = 0;
-	block_list = (bloque *)malloc(sizeof(bloque)*nivel.numero_de_bloques);
-	remaining_hits = (int *)malloc(sizeof(int)*nivel.numero_de_bloques);
 	
-	for(i; i < nivel.numero_de_bloques; i++) {
-		block_list[i].fila = (float)nivel.bloques[i].fila * WIDTH_SCALE + 2.5;
-		block_list[i].columna = ((float)nivel.bloques[i].columna + 10 + 0.5) * HEIGHT_SCALE;
-		block_list[i].color = (float)nivel.bloques[i].color;
-		switch (nivel.bloques[i].color) {
+	// set current level
+	if(status == 1) {
+		// player has won
+		return;
+	}
+	current_level = game->niveles + level_index;
+	
+	// allocate memory for game data
+	block_list = (Bloque *) malloc(sizeof(Bloque) * current_level->numero_de_bloques);
+	remaining_hits = (int *) malloc(sizeof(int) *   current_level->numero_de_bloques);
+	points = (int *) malloc(sizeof(int) * current_level->numero_de_bloques);
+	
+	// store game data
+	for(i; i < current_level->numero_de_bloques; i++) {
+		block_list[i].fila = (float) current_level->bloques[i].fila * WIDTH_SCALE + 2.5;
+		block_list[i].columna = ((float) current_level->bloques[i].columna + 10 + 0.5) * HEIGHT_SCALE;
+		block_list[i].color = (float) current_level->bloques[i].color;
+		switch (current_level->bloques[i].color) {
 			case 'A':
-			remaining_hits[i] = 1;
-			break;
+				remaining_hits[i] = 1;
+				points[i] = 10;
+				blocks_left += 1;
+				break;
 			case 'N':
-			remaining_hits[i] = 3;
-			break;
+				remaining_hits[i] = 3;
+				points[i] = 30;
+				blocks_left += 3;
+				break;
 			case 'R':
-			remaining_hits[i] = 5;
-			break;
+				remaining_hits[i] = 5;
+				points[i] = 50;
+				blocks_left += 5;
+				break;
 			case 'V':
-			remaining_hits[i] = 1;
-			break;
+				remaining_hits[i] = 1;
+				points[i] = 25;
+				blocks_left += 1;
+				break;
 			case 'G':
-			remaining_hits[i] = -1;
-			break;
+				remaining_hits[i] = -1;
+				points[i] = 0;
+				break;
 			default: break;
 		}
 	}
+	glutTimerFunc(game->tiempo_enfriamiento, lower_blocks, 0);
 }
 
+// draw individual bricks
 void draw_bricks () {
 	int i = 0;
-	for(i; i < nivel.numero_de_bloques; i++) {
+	// brick still in the game
+	for(i; i < current_level->numero_de_bloques; i++) {
 		if (remaining_hits[i]) {
 			draw_brick(block_list[i]);
-		}
-		else {
-			block_list[i].fila = -5;
-			block_list[i].columna = -5;
 		}
 	}
 }
 
+// draw directional bar
 void draw_bar () {
 	glPushMatrix();
-	glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,1.0,1.0});
-	glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,1.0,1.0});
+		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,1.0,1.0});
+		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,1.0,1.0});
 		glTranslatef(bar_x,-1.0,0.0);
 		glScalef(2*WIDTH_SCALE,HEIGHT_SCALE/2,DEPTH_SCALE);
-	glutSolidCube(1);
+		glutSolidCube(1);
+	glPopMatrix();
+	
+	glPushMatrix();
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,0.0,1.0});
+	glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.95,0.95,0.95,1.0});
+		glTranslatef(bar_x,-1.0,0.0);
+		glBegin(GL_QUADS);
+		glVertex3f( + 2.0, -0.5,  1.01);
+		glVertex3f( + 2.0,  0.5,  1.01);
+		glVertex3f( - 2.0,  0.5,  1.01);
+		glVertex3f( - 2.0, -0.5,  1.01);
+		glEnd();
 	glPopMatrix();
 }
 
 void draw_ball() {
-	alive ? ball_x : (ball_x = bar_x);
+	if(!alive) {
+		ball_x = bar_x;	
+		ball_y = 0;
+	}
 	glPushMatrix();
 		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,1.0,0.0,1.0});
 		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,1.0,0.0,1.0});
@@ -255,59 +230,105 @@ void draw_bounds() {
 	glPushMatrix();
 		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,0.0,1.0});
 		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.0,0.0,0.0,1.0});
-		glTranslatef(0.0,0.0,0.0);
 		glLineWidth(2.0);
+		glTranslatef(0.0f,0.0f,-Z);
 		glBegin(GL_LINES);
 			//ceiling
-			glVertex3f(0.0,80.0,0.0);
-			glVertex3f(0.0,80.0,2.0);
-			glVertex3f(0.0,80.0,2.0);
-			glVertex3f(50.0,80,2.0);
-			glVertex3f(50.0,80,2.0);
-			glVertex3f(50.0,80,0.0);
-			glVertex3f(50.0,80,0.0);
-			glVertex3f(0.0,80.0,0.0);
+			glVertex3f(MIN_X,MAX_Y,0.0);
+			glVertex3f(MIN_X,MAX_Y,2*Z);
+			glVertex3f(MIN_X,MAX_Y,2*Z);
+			glVertex3f(MAX_X,MAX_Y,2*Z);
+			glVertex3f(MAX_X,MAX_Y,2*Z);
+			glVertex3f(MAX_X,MAX_Y,0.0);
+			glVertex3f(MAX_X,MAX_Y,0.0);
+			glVertex3f(MIN_X,MAX_Y,0.0);
 			// walls
-			glVertex3f(0.0,0.0,0.0);
-			glVertex3f(0.0,0.0,2.0);
-			glVertex3f(0.0,0.0,2.0);
-			glVertex3f(0.0,80,2.0);
-			glVertex3f(0.0,80,2.0);
-			glVertex3f(0.0,80,0.0);			
-			glVertex3f(0.0,80,0.0);
-			glVertex3f(0.0,0.0,0.0);
+			glVertex3f(MIN_X,MIN_Y,0.0);
+			glVertex3f(MIN_X,MIN_Y,2*Z);
+			glVertex3f(MIN_X,MIN_Y,2*Z);
+			glVertex3f(MIN_X,MAX_Y,2*Z);
+			glVertex3f(MIN_X,MAX_Y,2*Z);
+			glVertex3f(MIN_X,MAX_Y,0.0);			
+			glVertex3f(MIN_X,MAX_Y,0.0);
+			glVertex3f(MIN_X,MIN_Y,0.0);
 			
-			glVertex3f(50.0,0.0,0.0);
-			glVertex3f(50.0,0.0,2.0);
-			glVertex3f(50.0,0.0,2.0);
-			glVertex3f(50.0,80,2.0);
-			glVertex3f(50.0,80,2.0);
-			glVertex3f(50.0,80,0.0);
-			glVertex3f(50.0,80,0.0);
-			glVertex3f(50.0,0.0,0.0);
+			glVertex3f(MAX_X,MIN_Y,0.0);
+			glVertex3f(MAX_X,MIN_Y,2*Z);
+			glVertex3f(MAX_X,MIN_Y,2*Z);
+			glVertex3f(MAX_X,MAX_Y,2*Z);
+			glVertex3f(MAX_X,MAX_Y,2*Z);
+			glVertex3f(MAX_X,MAX_Y,0.0);
+			glVertex3f(MAX_X,MAX_Y,0.0);
+			glVertex3f(MAX_X,MIN_Y,0.0);
 		glEnd();
 	glPopMatrix();
 	glPushMatrix();		
-		glTranslatef(0.0,0.0,0.0);
+		glTranslatef(0.0f,0.0f,-Z);
 		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float []){0.0,0.0,0.0,1.0});
 		glMaterialfv(GL_FRONT, GL_AMBIENT, (float []){0.95,0.95,0.95,1.0});
 		glBegin(GL_QUADS);
 			// ceiling
-			glVertex3f(0.0,80.0,0.0);
-			glVertex3f(0.0,80.0,2.0);
-			glVertex3f(50.0,80,2.0);
-			glVertex3f(50.0,80,0.0);
+			glVertex3f(MIN_X,MAX_Y,0.0);
+			glVertex3f(MIN_X,MAX_Y,2*Z);
+			glVertex3f(MAX_X,MAX_Y,2*Z);
+			glVertex3f(MAX_X,MAX_Y,0.0);
+
 			// walls
-			glVertex3f(0.0,0.0,0.0);
-			glVertex3f(0.0,0.0,2.0);
-			glVertex3f(0.0,80,2.0);
-			glVertex3f(0.0,80,0.0);
-			glVertex3f(50.0,0.0,0.0);
-			glVertex3f(50.0,0.0,2.0);
-			glVertex3f(50.0,80,2.0);
-			glVertex3f(50.0,80,0.0);
+			glVertex3f(MIN_X,MIN_Y,0.0);
+			glVertex3f(MIN_X,MIN_Y,2*Z);
+			glVertex3f(MIN_X,MAX_Y,2*Z);
+			glVertex3f(MIN_X,MAX_Y,0.0);
+			glVertex3f(MAX_X,MIN_Y,0.0);
+			glVertex3f(MAX_X,MIN_Y,2*Z);
+			glVertex3f(MAX_X,MAX_Y,2*Z);
+			glVertex3f(MAX_X,MAX_Y,0.0);
 		glEnd();
 	glPopMatrix();
+}
+
+void draw_string(GLuint x, GLuint y, char* s, int *format) {
+    glRasterPos2i(x, y);
+    for (; *s; s++) {
+        glutBitmapCharacter(format, *s);
+	}
+}
+
+void draw_game_info() {
+	char str[60];
+	
+	glPushMatrix();
+	glMaterialfv(GL_FRONT, GL_DIFFUSE, (float[]){0.0,0.0,0.0,1.0});
+	glMaterialfv(GL_FRONT, GL_AMBIENT, (float[]){0.0,0.0,0.0,1.0});
+	
+	// level name
+	if (status == 0) {
+		draw_string(25, MAX_Y + 8, current_level->nombre, (int *) GLUT_BITMAP_HELVETICA_18);
+	}
+	else if (status == -1) {
+		glPushMatrix();
+		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float[]){1.0,0.0,0.0,1.0});
+		glMaterialfv(GL_FRONT, GL_AMBIENT, (float[]){1.0,0.0,0.0,1.0});
+		draw_string(25, MAX_Y + 8, "YOU LOST", (int *) GLUT_BITMAP_HELVETICA_18);
+		glPopMatrix();
+	}
+	else {
+		glPushMatrix();
+		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float[]){0.0,1.0,0.0,1.0});
+		glMaterialfv(GL_FRONT, GL_AMBIENT, (float[]){0.0,1.0,0.0,1.0});
+		draw_string(25, MAX_Y + 8, "YOU WON", (int *) GLUT_BITMAP_HELVETICA_18);
+		glPopMatrix();
+	}
+	// score
+	draw_string(-20, MAX_Y + 8, "Puntuacion: ", (int *)  GLUT_BITMAP_HELVETICA_12);
+	sprintf(str, "%d", score);
+	draw_string(-19, MAX_Y + 2, str, (int *)  GLUT_BITMAP_HELVETICA_18);
+
+	// lives
+	draw_string(-17, MAX_Y - 4, "Vidas: ", (int *) GLUT_BITMAP_HELVETICA_12);
+	sprintf(str, "%d", lives);
+	draw_string(-16, MAX_Y - 10, str, (int *) GLUT_BITMAP_HELVETICA_18);
+	glPopMatrix();
+	
 }
 
 void display () {
@@ -316,95 +337,188 @@ void display () {
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	// draw scene elements
-	// draw_grid();
-	draw_bounds();
-	draw_bricks();
-	draw_bar();
-	draw_ball();
+	if(status == 0) {
+		draw_bounds();
+		draw_bricks();
+		draw_bar();
+		draw_ball();
+		draw_game_info();
+	}
+	else if (status == 1) {
+		// player has won
+		draw_bounds();
+		draw_ball();
+		draw_game_info();
+		glutSwapBuffers();
+		return;
+	}
 
 	// paint
 	glutSwapBuffers();
 }
 
 void reshape (int width, int height) {
+	// viewport transf.
 	glViewport(0, 0, (GLsizei)width, (GLsizei)height); 
 
+	// project. matrix
 	glMatrixMode(GL_PROJECTION); 
 	glLoadIdentity(); 
-	
 	gluPerspective(40, (GLfloat)width / (GLfloat)height, 60.0, 130.0); 
 	
+	// modelview matrix
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 	gluLookAt(25.0,-30.0,70.0,25.0,30.0,0.0,0.0,1.0,0.0);
 }
 
+void reset_game() {
+	alive = 0;
+	score = 0;
+	lives = 3;
+	ball_x = 25;
+	ball_y = 0;
+	ball_speed_x = 0;
+	ball_speed_y = 0;
+	blocks_left = 0;
+	level_index = 0;
+}
+
 static void play(int value) {
-	int i = 0;
+	int i = 0, j = 0;
 	float 	block_left_bound,
 	 		block_right_bound,
 	 		block_top_bound,
-	 		block_bottom_bound;
-	float 	ball_max_x = ball_x + BALL_RADIUS,
-	 		ball_min_x = ball_x - BALL_RADIUS,
-	 		ball_max_y = ball_y + BALL_RADIUS,
-			ball_min_y = ball_y - BALL_RADIUS;
-	bloque block;
+			block_bottom_bound;
+	Bloque block;
 	
 	// Set up the next timer tick (do this first)
     glutTimerFunc(timer, play, 0);
+	
+	if (!lives) {
+		reset_game();
+		free_memory();
+		return;
+	}
+	
+	if (!alive) {
+		ball_speed_x = 0;
+		ball_speed_y = 0;
+	}
+	
+	if (!blocks_left) {
+		level_index++;
+		if(level_index == game->numero_de_niveles) {
+			// player has won
+			status = 1;
+			return;
+		}
+		ball_x = 25;
+		ball_y = 0;
+
+		alive = 0;
+		ball_speed_x = 0;
+		ball_speed_y = 0;
+		free_memory();
+		load_bricks();
+	}
 
 	// Measure the elapsed time
 	int current_time = glutGet(GLUT_ELAPSED_TIME);
 	int time_since_previous_frame = current_time - previous_time;
 	int elapsed_time = current_time - star_time;
 
-	ball_y += ball_direction_y * (ball_speed_y/3);
-	ball_x += ball_direction_x * (ball_speed_x/3);
+	ball_y += ball_direction_y * (ball_speed_y/2);
+	ball_x += ball_direction_x * (ball_speed_x/2);
 
 	// collision w/ bar
-	if (	collision_block != -1 && ball_y <= 0.5
+	if (	collision_block != -1 && ball_y <= 0.5 && ball_direction_y < 0 && ball_y>-0.2
 		&& 	ball_x >= bar_x - WIDTH_SCALE && ball_x <= bar_x + WIDTH_SCALE) {
+			
+		// collision w/blue part. 0.05555 = 5 degrees aprox.
+		if (ball_x <= bar_x - 2.0 || ball_x >= bar_x + 2.0) {
+			if (ball_direction_x > 0) {
+				if (ball_x <= bar_x - 2.0) {
+					ball_direction_x -= 0.05555;
+				}
+				else {
+					ball_direction_x += 0.05555;
+				}
+			}
+			else {
+				if (ball_x <= bar_x - 2.0) {
+					ball_direction_x += 0.05555;
+				}
+				else {
+					ball_direction_x -= 0.05555;
+				}
+			}
+		}
 		ball_direction_y *= -1;
 		collision_block = -1;
 	}
-
-	// collisiom w/ceiling
-	if(ball_y + 1 >= MAX_Y) {
-		ball_direction_y *= -1.0;
-		collision_block = -2;
-	}
 	
 	// collision with blocks
-	for(i = 0; i < nivel.numero_de_bloques; ++i) {
+	for(i = 0; i < current_level->numero_de_bloques; ++i) {
 		block = block_list[i];
 		block_left_bound = block.fila - WIDTH_SCALE/2;
 		block_right_bound = block.fila + WIDTH_SCALE/2;
 		block_top_bound = block.columna + HEIGHT_SCALE/2;
 		block_bottom_bound = block.columna - HEIGHT_SCALE/2;
-
+		
 		// collision with top or bottom
-		if ( 	collision_block != i
+		if ( collision_block != i
 			&&	ball_x >= block_left_bound - BALL_RADIUS/2
-			&&	ball_x <= block_right_bound + BALL_RADIUS/2
-			&& 	(	abs(ball_y - block_top_bound) <= BALL_RADIUS/2 
-				|| 	abs(ball_y - block_bottom_bound) <= BALL_RADIUS/2) )
+			&&	ball_x <= block_right_bound + BALL_RADIUS/2)
 		{
-			ball_direction_y *= -1;
-			collision_block = i;
-			remaining_hits[i]--;
+				// top
+				if (abs(ball_y - block_top_bound) < BALL_RADIUS/2) {
+					ball_direction_y = 1;
+					collision_block = i;
+					remaining_hits[i]--;
+					blocks_left--;
+					score += points[i];
+					break;
+				}
+				// bottom
+				if (abs(ball_y - block_bottom_bound) < BALL_RADIUS/2) {
+					ball_direction_y = -1;
+					collision_block = i;
+					remaining_hits[i]--;
+					blocks_left--;
+					score += points[i];
+					break;
+				}
 		}
+
 		// collision with one of the sides
 		if ( 	collision_block != i
 			&& 	ball_y >= block_bottom_bound - BALL_RADIUS/2
-			&&	ball_y <= block_top_bound + BALL_RADIUS/2
-			&& 	(	abs(ball_x - block_right_bound) <= BALL_RADIUS/2 
-				|| 	abs(ball_x - block_left_bound) <= BALL_RADIUS/2))
+			&&	ball_y <= block_top_bound + BALL_RADIUS/2)
 		{
-			ball_direction_x *= -1;
-			collision_block = i;
-			remaining_hits[i]--;
+			if( abs(ball_x - block_right_bound) < BALL_RADIUS/2 && ball_direction_x < 0) {
+				ball_direction_x *= -1;
+				collision_block = i;
+				remaining_hits[i]--;
+				blocks_left--;
+				score += points[i];
+				break;
+			}
+			if( abs(ball_x - block_left_bound) < BALL_RADIUS/2 && ball_direction_x > 0) {
+				ball_direction_x *= -1;
+				collision_block = i;
+				remaining_hits[i]--;
+				blocks_left--;
+				score += points[i];
+				break;
+			}
 		}
+		if (remaining_hits[i] == 0) {
+			// brick destroyed
+			block_list[i].fila = -5;
+			block_list[i].columna = -5;
+		}
+		
 	}
 	
 	// collision walls
@@ -412,26 +526,47 @@ static void play(int value) {
 		ball_direction_x *= -1.0;
 		collision_block = -2;
 	}
-
+	
+	// collisiom w/ceiling
+	if (ball_y + 1 >= MAX_Y) {
+		ball_direction_y *= -1.0;
+		collision_block = -2;
+	}
+	
+	// collision w/floor - lose
+	if (ball_y < -5.0) {
+		alive = 0;
+		lives--;
+		collision_block = -2;
+	}
+	
 	// Force a redisplay to render the new image
 	glutPostRedisplay();
 
 	previous_time = current_time;
 }
-
 static void key(unsigned char k, int x, int y) {
+	unsigned int iseed = (unsigned int) time (NULL);
+	srand (iseed);
 	switch (k) {
 	// escape
 	case ESCAPE:
 		exit(0);
 	case SPACEBAR:
 		if (!alive) {
-			ball_speed_y = 0.5;
-			ball_speed_x = 0.5;
-			ball_direction_x = -0.2;// + (float) (rand() % 11) + 10.0;
-			printf("ball_speed_x %d %f %f \n ",rand(),ball_speed_x, (double)(rand() % 11 + 10.0)/10.0);
 			alive = 1;
+			ball_speed_y = 1.0;
+			ball_speed_x = 1.0;
+			ball_direction_y = 1.0;
+			ball_direction_x = (rand() % 2 > 0 ? -1 : 1) * (rand() % 5) * 0.02222;
 		}
+		break;
+	case 'r':
+	case 'R':
+		reset_game();
+		free_memory();
+		load_bricks();
+		break;
 	default:
 		return;
 	}
@@ -453,6 +588,7 @@ void key_special(int key, int x, int y) {
 	glutPostRedisplay();
 }
 
+// move directional bar with mouse
 void mouse (int x, int y) {
 	GLdouble new_x, new_y, new_z;
 	GLdouble model_matrix[16];
@@ -477,7 +613,7 @@ void mouse (int x, int y) {
 int main (int argc, char *argv[]) {
 	// window settings
 	glutInit(&argc, argv);
-	glutInitWindowSize(600,600);
+	glutInitWindowSize(800,600);
 	glutInitWindowPosition(20,20);
 	glutInitDisplayMode(GLUT_RGBA | GLUT_DEPTH);
 	glutCreateWindow("Play")	;
@@ -495,8 +631,10 @@ int main (int argc, char *argv[]) {
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
 	
-	// load levels from file
-	nivel = load_level("nivel1.txt");
+	// load game settings and levels
+	game = (Game *) malloc(sizeof(Game));
+	load_game(argv[1], game);
+	lives = game->vidas;
 	
 	// load bricks data
 	load_bricks();
@@ -512,3 +650,4 @@ int main (int argc, char *argv[]) {
 	glutMainLoop();
 	return 0;
 }
+
