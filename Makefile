@@ -1,5 +1,9 @@
+UNAME := $(shell uname -s)
 CC=gcc
-CFLAGS=-framework GLUT -framework OpenGL
+CFLAGS=-lGL -lglut -lGLU
+ifeq ($(UNAME),Darwin)
+	CFLAGS=-framework GLUT -framework OpenGL
+endif
 DEPS=loader.h nivel.h
 OBJ=hellomake.o hellofunc.o 
 

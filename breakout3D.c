@@ -132,6 +132,7 @@ void lower_blocks () {
 			if(block_list[i].columna == -1) {
 				// player lost
 				status = -1;
+				return;
 			}
 		}
 	}
@@ -154,9 +155,18 @@ void load_bricks () {
 	block_list = (Bloque *) malloc(sizeof(Bloque) * current_level->numero_de_bloques);
 	remaining_hits = (int *) malloc(sizeof(int) *   current_level->numero_de_bloques);
 	points = (int *) malloc(sizeof(int) * current_level->numero_de_bloques);
+
+	// clean memory space
+	for(i = 0; i < current_level->numero_de_bloques; i++) {
+		block_list[i].fila = 0;
+		block_list[i].columna = 0;
+		block_list[i].color = 0;
+		remaining_hits[i] = 0;
+		points[i] = 0;
+	}
 	
 	// store game data
-	for(i; i < current_level->numero_de_bloques; i++) {
+	for(i = 0; i < current_level->numero_de_bloques; i++) {
 		block_list[i].fila = (float) current_level->bloques[i].fila * WIDTH_SCALE + 2.5;
 		block_list[i].columna = ((float) current_level->bloques[i].columna + 10 + 0.5) * HEIGHT_SCALE;
 		block_list[i].color = (float) current_level->bloques[i].color;
@@ -319,14 +329,14 @@ void draw_game_info() {
 		glPushMatrix();
 		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float[]){1.0,0.0,0.0,1.0});
 		glMaterialfv(GL_FRONT, GL_AMBIENT, (float[]){1.0,0.0,0.0,1.0});
-		draw_string(25, MAX_Y + 8, "YOU LOST", (int *) GLUT_BITMAP_HELVETICA_18);
+		draw_string(25, MAX_Y + 8, "HA PERDIDO", (int *) GLUT_BITMAP_HELVETICA_18);
 		glPopMatrix();
 	}
 	else {
 		glPushMatrix();
 		glMaterialfv(GL_FRONT, GL_DIFFUSE, (float[]){0.0,1.0,0.0,1.0});
 		glMaterialfv(GL_FRONT, GL_AMBIENT, (float[]){0.0,1.0,0.0,1.0});
-		draw_string(25, MAX_Y + 8, "YOU WON", (int *) GLUT_BITMAP_HELVETICA_18);
+		draw_string(25, MAX_Y + 8, "HA GANADO", (int *) GLUT_BITMAP_HELVETICA_18);
 		glPopMatrix();
 	}
 	// score
@@ -356,7 +366,6 @@ void display () {
 		draw_game_info();
 	}
 	else{
-		// player has won
 		draw_bounds();
 		draw_game_info();
 	}
@@ -419,6 +428,7 @@ static void play(int value) {
 	
 	if (!blocks_left) {
 		level_index++;
+		next_jump = 99999999;
 		if(level_index >= game->numero_de_niveles) {
 			// player has won
 			status = 1;
@@ -435,9 +445,8 @@ static void play(int value) {
 		load_bricks();
 	}
 	if (glutGet(GLUT_ELAPSED_TIME) > next_jump) {
-	printf("%d %d\n", glutGet(GLUT_ELAPSED_TIME), next_jump);
-		next_jump += game->tiempo_de_salto;
 		lower_blocks();
+		next_jump += game->tiempo_de_salto;
 	}
 	
 	// Set up the next timer tick (do this first)
@@ -483,85 +492,95 @@ static void play(int value) {
 	}
 	
 	// collision with blocks
-	for(i = 0; i < current_level->numero_de_bloques; ++i) {
-		block = block_list[i];
-		block_left_bound = block.fila - WIDTH_SCALE/2;
-		block_right_bound = block.fila + WIDTH_SCALE/2;
-		block_top_bound = block.columna + HEIGHT_SCALE/2;
-		block_bottom_bound = block.columna - HEIGHT_SCALE/2;
+	// if (status != -1 && playing) {
+		for(i = 0; i < current_level->numero_de_bloques; ++i) {
+			block = block_list[i];
+			block_left_bound = block.fila - WIDTH_SCALE/2;
+			block_right_bound = block.fila + WIDTH_SCALE/2;
+			block_top_bound = block.columna + HEIGHT_SCALE/2;
+			block_bottom_bound = block.columna - HEIGHT_SCALE/2;
 		
-		// collision with top or bottom
-		if ( collision_block != i
-			&&	ball_x >= block_left_bound - BALL_RADIUS/2
-			&&	ball_x <= block_right_bound + BALL_RADIUS/2
-			&& playing)
-		{
-				// top
-				if (abs(ball_y - block_top_bound) < BALL_RADIUS/2) {
-					ball_direction_y = 1;
-					collision_block = i;
-					if (block.color = 'V') {
-						ball_speed_x += ball_speed_x * 0.1;
-						ball_speed_y += ball_speed_y * 0.1;
+			// collision with top or bottom
+			if ( collision_block != i
+				&&	ball_x >= block_left_bound - BALL_RADIUS/2
+				&&	ball_x <= block_right_bound + BALL_RADIUS/2
+				&& playing)
+			{
+					// top
+					if (abs(ball_y - block_top_bound) < BALL_RADIUS/2) {
+						ball_direction_y = 1;
+						collision_block = i;
+						if (block.color == 'V') {
+							ball_speed_x += ball_speed_x * 0.1;
+							ball_speed_y += ball_speed_y * 0.1;
+						}
+						if (block.color != 'G') {
+							remaining_hits[i]--;
+							blocks_left--;
+							score += points[i];
+						}
+						break;
 					}
-					remaining_hits[i]--;
-					blocks_left--;
-					score += points[i];
-					break;
-				}
-				// bottom
-				if (abs(ball_y - block_bottom_bound) < BALL_RADIUS/2) {
-					ball_direction_y = -1;
-					collision_block = i;
-					if (block.color = 'V') {
-						ball_speed_x += ball_speed_x * 0.1;
-						ball_speed_y += ball_speed_y * 0.1;
+					// bottom
+					if (abs(ball_y - block_bottom_bound) < BALL_RADIUS/2) {
+						ball_direction_y = -1;
+						collision_block = i;
+						if (block.color == 'V') {
+							ball_speed_x += ball_speed_x * 0.1;
+							ball_speed_y += ball_speed_y * 0.1;
+						}
+						if (block.color != 'G') {
+							remaining_hits[i]--;
+							blocks_left--;
+							score += points[i];
+						}
+						break;
 					}
-					remaining_hits[i]--;
-					blocks_left--;
-					score += points[i];
-					break;
-				}
-		}
+			}
 
-		// collision with one of the sides
-		if ( 	collision_block != i
-			&& 	ball_y >= block_bottom_bound - BALL_RADIUS/2
-			&&	ball_y <= block_top_bound + BALL_RADIUS/2
-			&& playing)
-		{
-			if( abs(ball_x - block_right_bound) < BALL_RADIUS/2 && ball_direction_x < 0) {
-				ball_direction_x *= -1;
-				collision_block = i;
-				if (block.color = 'V') {
-					ball_speed_x += ball_speed_x * 0.1;
-					ball_speed_y += ball_speed_y * 0.1;
+			// collision with one of the sides
+			if ( 	collision_block != i
+				&& 	ball_y >= block_bottom_bound - BALL_RADIUS/2
+				&&	ball_y <= block_top_bound + BALL_RADIUS/2
+				&& playing)
+			{
+				if( abs(ball_x - block_right_bound) < BALL_RADIUS/2 && ball_direction_x < 0) {
+					ball_direction_x *= -1;
+					collision_block = i;
+					if (block.color == 'V') {
+						ball_speed_x += ball_speed_x * 0.1;
+						ball_speed_y += ball_speed_y * 0.1;
+					}
+					if (block.color != 'G') {
+						remaining_hits[i]--;
+						blocks_left--;
+						score += points[i];
+					}
+					break;
 				}
-				remaining_hits[i]--;
-				blocks_left--;
-				score += points[i];
-				break;
-			}
-			if( abs(ball_x - block_left_bound) < BALL_RADIUS/2 && ball_direction_x > 0) {
-				ball_direction_x *= -1;
-				collision_block = i;
-				if (block.color = 'V') {
-					ball_speed_x += ball_speed_x * 0.1;
-					ball_speed_y += ball_speed_y * 0.1;
+				if( abs(ball_x - block_left_bound) < BALL_RADIUS/2 && ball_direction_x > 0) {
+					ball_direction_x *= -1;
+					collision_block = i;
+					if (block.color == 'V') {
+						ball_speed_x += ball_speed_x * 0.1;
+						ball_speed_y += ball_speed_y * 0.1;
+					}
+					if (block.color != 'G') {
+						remaining_hits[i]--;
+						blocks_left--;
+						score += points[i];
+					}
+					break;
 				}
-				remaining_hits[i]--;
-				blocks_left--;
-				score += points[i];
-				break;
 			}
-		}
-		if (remaining_hits[i] == 0) {
-			// brick destroyed
-			block_list[i].fila = -5;
-			block_list[i].columna = -5;
-		}
+			if (remaining_hits[i] == 0) {
+				// brick destroyed
+				block_list[i].fila = -5;
+				block_list[i].columna = -5;
+			}
 		
-	}
+		}
+	//}
 	
 	// collision walls
 	if (ball_x - BALL_RADIUS/2 <= MIN_X || ball_x + BALL_RADIUS/2 >= MAX_X) {
@@ -607,7 +626,6 @@ static void key(unsigned char k, int x, int y) {
 			ball_speed_x = 0.3;
 			ball_direction_y = 1.0;
 			ball_direction_x = (rand() % 2 > 0 ? -1 : 1) * (rand() % 5) * 0.02222;
-			// glutTimerFunc(game->tiempo_enfriamiento, cool_down, 0);
 			next_jump = glutGet(GLUT_ELAPSED_TIME) + game->tiempo_enfriamiento
 				+ game->tiempo_de_salto;
 			playing = 1;
